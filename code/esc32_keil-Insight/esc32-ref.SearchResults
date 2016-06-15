@@ -1,0 +1,3 @@
+---- BINARY_VALUE_COMM_PERIOD Matches (2 in 2 files) ----
+Binary.c (src):				case BINARY_VALUE_COMM_PERIOD:
+Binary.h (src):    BINARY_VALUE_COMM_PERIOD,
