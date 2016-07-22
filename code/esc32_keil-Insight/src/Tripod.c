@@ -10,9 +10,9 @@
 #include "serial.h"
 #include "tripod.h"
 digitalPin *m2Out1,*m2Out2,*m1Out1,*m1Out2;
-static uint32_t tripodStartTime,tripodTotalTime,tripodInitTime;
+static uint32_t tripodStartTime,tripodTotalTime,tripodInitTime,pwmLostTime = 0;
 static int tripodActionReq,tripodActionPoint;
-static uint16_t firstpoint = 0;
+static uint16_t firstaction,firstpoint = 0,currentpoint=0,firstpwm=0;
 static void tripodOperationTime(uint16_t totalX00mSec){
 	tripodStartTime = 0;
 	tripodTotalTime = totalX00mSec;
@@ -64,6 +64,8 @@ static void tripodStop(){
 		ADC_SoftwareStartConvCmd(ADC1, DISABLE);
 		if(tripodState== TRIPOD_STATE_CLOSING){
 			tripodState = TRIPOD_STATE_CLOSED;
+			if(firstaction ==1)
+				firstaction = 2;
 		}else if(tripodState == TRIPOD_STATE_OPENING){
 			tripodState = TRIPOD_STATE_OPENED;
 		}
@@ -122,6 +124,8 @@ void tripodAdcAction(int arm){// 1 adcval1 2 adcval2
 		ADC_SoftwareStartConvCmd(ADC1, DISABLE);
 		if(tripodState== TRIPOD_STATE_CLOSING){
 			tripodState = TRIPOD_STATE_CLOSED;
+			if(firstaction ==1)
+				firstaction = 2;
 		}else if(tripodState == TRIPOD_STATE_OPENING){
 			tripodState = TRIPOD_STATE_OPENED;
 		}
@@ -136,7 +140,7 @@ void tripodTimerAction(){
 	if((tripodActionReq == TRIPOD_STATE_OPENING)||(tripodActionReq == TRIPOD_STATE_CLOSING)){
 		if(tripodInitTime++ > 5){//500ms
 			tripodPwmAction(tripodActionReq,tripodActionPoint);
-			tripodActionReq = TRIPOD_STATE_INIT;//set init for done
+			tripodActionReq = TRIPOD_STATE_INIT;//set init means no request
 		}
 	}
 
@@ -148,40 +152,65 @@ void tripodTimerAction(){
 			tripodStop();
 		}
 	}
+
+	if(currentpoint<1550 && currentpoint >1450){
+		if(pwmLostTime > 30){//3s
+			if((tripodActionReq != TRIPOD_STATE_CLOSING)&&(tripodState != TRIPOD_STATE_CLOSING)&&(tripodState != TRIPOD_STATE_CLOSED)){//s
+				tripodStop();//stop first
+				tripodPwmActionRequest(TRIPOD_STATE_CLOSING,0);
+			}
+		}else{
+			pwmLostTime++;
+		}
+	}else{
+		pwmLostTime = 0;
+	}
 }
 
+void tripodFirstAction(){
+	if(tripodState == TRIPOD_STATE_INIT){
+		if(firstaction == 0){
+			firstaction = 1;// first action start
+			tripodPwmActionRequest(TRIPOD_STATE_CLOSING,0);
+		}
+	}
+}
 //call by pwm,setpoint init closing ,than H-->L closing,L-->H opening
 void pwmNewInput(uint16_t setpoint) {
 //		sprintf(printBuf, "pwmNewInput setpoint:%d tripodState:%d\r\n",setpoint,tripodState);
 //		serialPrint(printBuf);
-	if(tripodState == TRIPOD_STATE_INIT){//init status
-		if((firstpoint == 0)){
-			firstpoint = setpoint;
-			tripodPwmActionRequest(TRIPOD_STATE_CLOSING,setpoint);
-		}
-	}else if((tripodState == TRIPOD_STATE_OPENED)||(tripodState == TRIPOD_STATE_CLOSED)){//opened, closed status
-		if(setpoint < 1200){
-			if(tripodState == TRIPOD_STATE_OPENED ){
+	if(firstpwm ==0){
+		firstpoint = setpoint;
+		firstpwm++;
+	}
+	currentpoint = setpoint;
+	if((firstpoint > 1700)&&(setpoint < 1200)){
+		//setpoint has changed
+		firstpoint = 0;
+	}
+	if(firstpoint < 1200 && (firstaction == 2 || firstaction == 0)){
+		if(tripodState == TRIPOD_STATE_INIT){//init status
+			if((firstaction == 0)){
+				firstaction = 1;// first action start
 				tripodPwmActionRequest(TRIPOD_STATE_CLOSING,setpoint);
-			}else if((tripodState == TRIPOD_STATE_CLOSED)&&(firstpoint > 1700)){// means pwm from H to L,so we can let arm action if pwm to H
-				firstpoint = 0;
 			}
-		}else if(setpoint > 1700){
-			if(tripodState == TRIPOD_STATE_CLOSED){
-				if(firstpoint > 1700)
-					return;
+		}else if(tripodState == TRIPOD_STATE_OPENED){
+			if(setpoint < 1200)
+				tripodPwmActionRequest(TRIPOD_STATE_CLOSING,setpoint);
+		}else if(tripodState == TRIPOD_STATE_CLOSED){//closed status
+			if(setpoint > 1700){
 				tripodPwmActionRequest(TRIPOD_STATE_OPENING,setpoint);
 			}
-		}
-	}else{//opening,closing status
-		if((tripodState == TRIPOD_STATE_OPENING)&&(setpoint < 1200)){
-			tripodStop();//stop first
-			tripodPwmActionRequest(TRIPOD_STATE_CLOSING,setpoint);
-		}
-		if((tripodState == TRIPOD_STATE_CLOSING)&&(setpoint > 1700)
-			&&(firstpoint == 0)){//means not first closing,so we will take action
-			tripodStop();//stop first
-			tripodPwmActionRequest(TRIPOD_STATE_OPENING,setpoint);
+		}else if(tripodState == TRIPOD_STATE_OPENING){//opening
+			if((setpoint < 1200)){
+				tripodStop();//stop first
+				tripodPwmActionRequest(TRIPOD_STATE_CLOSING,setpoint);
+			}
+		}else{//closing
+			if(setpoint > 1700){
+				tripodStop();//stop first
+				tripodPwmActionRequest(TRIPOD_STATE_OPENING,setpoint);
+			}
 		}
 	}
 }

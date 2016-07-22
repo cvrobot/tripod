@@ -5,6 +5,7 @@
 #define TRIPOD_ARM2 2
 #define TRIPOD_ARMBOTH 3
 extern void tripodInit(void);
+extern void tripodFirstAction(void);
 extern void tripodstop(void);
 extern void tripodAdcAction(int arm);
 extern void tripodTimerAction(void);

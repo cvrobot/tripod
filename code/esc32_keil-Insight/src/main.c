@@ -71,7 +71,7 @@ int main(void)
 	//LED≥ı ºªØ
 	digitalHi(statusLed);
 	digitalHi(errorLed);
-
+	tripodFirstAction();
 	// self calibrating idle timer loop
 	{
 		volatile unsigned long cycles;
